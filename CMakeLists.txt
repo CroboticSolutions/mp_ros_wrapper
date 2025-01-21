@@ -9,6 +9,7 @@ project(mp_wrapper_ros)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   rospy
+  hpe_ros_msgs
 )
 
 ## System dependencies are found with CMake's conventions

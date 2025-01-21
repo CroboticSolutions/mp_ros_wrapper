@@ -16,6 +16,7 @@ class HumanPoseNode:
         # TODO: Move to the GPU if available
         self.pose = mp.solutions.pose.Pose()
         self.hand_tracking = mp.solutions.hands.Hands()
+        self.gesture = mp.solutions.gesture.Gesture()
         self.drawing_utils = mp.solutions.drawing_utils
 
         self.bridge = CvBridge()
