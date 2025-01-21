@@ -77,3 +77,4 @@ def createMarker(stamp, x, y, z, i, color=(255, 0, 0)):
     m_.pose.orientation.z = 0
     m_.pose.orientation.w = 1
     return m_
+

@@ -107,8 +107,8 @@ class HumanPoseNode:
                 return cv_img[int(min_y):int(max_y), int(min_x):int(max_x)]
         
             def crop_hand(cv_img, hand_landmarks):
-                x_ = [a.x*w for a in hand_landmarks.landmark]
-                y_ = [a.y*h for a in hand_landmarks.landmark]
+                x_ = [a.x * w for a in hand_landmarks.landmark]
+                y_ = [a.y * h for a in hand_landmarks.landmark]
                 min_x, max_x = min(x_), max(x_)
                 if min_x < 0: min_x = 0
                 else: 

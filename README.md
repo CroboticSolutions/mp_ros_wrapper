@@ -4,10 +4,10 @@ Wrapper for the mediapipe ML pipelines.
 
 # TODO: 
 - [x] Check image delay
-- [ ] Add gesture recognition
-- [ ] Add launch 
+- [x] Add gesture recognition
+- [x] Add launch
+- [x] Add 3D points info 
 - [ ] Connect with the H2AMI 
-- [ ] Add 3D points info 
 - [ ] Check 3D point estimation 
 - [ ] Compare with openpose
 
