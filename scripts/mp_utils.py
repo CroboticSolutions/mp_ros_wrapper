@@ -1,4 +1,5 @@
 from hpe_ros_msgs.msg import MpHumanPose3D
+from visualization_msgs.msg import Marker, MarkerArray
 
 def packMPHPE3DMsg(header, landmarks):
     """ Pack a mediapipe human pose estimation message into a ROS message """
@@ -39,3 +40,40 @@ def packMPHPE3DMsg(header, landmarks):
     msg.r_foot_index.x = landmarks.landmark[32].x; msg.r_foot_index.y = landmarks.landmark[32].y; msg.r_foot_index.z = landmarks.landmark[32].z
     return msg
 
+
+def getMarkerArray(stamp, landmarks, color):
+    hpe3d = [(landmark.x, landmark.y, landmark.z) for landmark in landmarks]
+    mA = createMarkerArray(stamp, hpe3d, color)
+    return mA
+
+def createMarkerArray(stamp, keypoints, color=(255, 0, 0)):
+    mA = MarkerArray()
+    i = 0
+    for x, y, z in keypoints:
+        m_ = createMarker(stamp, x, y, z, i, color)
+        i+=1 
+        mA.markers.append(m_)
+    return mA
+
+def createMarker(stamp, x, y, z, i, color=(255, 0, 0)):
+    m_ = Marker()
+    m_.header.frame_id = "camera_color_frame"
+    m_.header.stamp = stamp
+    m_.type = m_.SPHERE
+    m_.id = i
+    m_.action = m_.ADD
+    m_.scale.x = 0.1
+    m_.scale.y = 0.1
+    m_.scale.z = 0.1
+    m_.color.a = 1.0
+    m_.color.r = color[0]
+    m_.color.g = color[1]
+    m_.color.b = color[2]
+    m_.pose.position.x = x
+    m_.pose.position.y = y
+    m_.pose.position.z = z
+    m_.pose.orientation.x = 0
+    m_.pose.orientation.y = 0
+    m_.pose.orientation.z = 0
+    m_.pose.orientation.w = 1
+    return m_
