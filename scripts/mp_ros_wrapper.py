@@ -17,9 +17,14 @@ from mp_utils import packMPHPE3DMsg, getMarkerArray
 # https://ai.google.dev/edge/api/mediapipe/python/mp/Image 
 
 # TODO: 
-# - [ ] Create set of markers to visualize pose estimate
+# - [x] Create set of markers to visualize pose estimate
 # - [ ] Test connecting with H2AMI 
+
 QUEUE_SIZE=1
+PLOT_LOC_MARKER=True
+PLOT_GLOB_MARKER=True
+PLOT_HPE_POSE=True
+
 class HumanPoseNode:
     def __init__(self):
         # Initialize the ROS node
@@ -73,26 +78,24 @@ class HumanPoseNode:
         hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
         self.hpe3d_pub.publish(hpe3d_msg)
 
-        plot_pose = True
+        plot_pose = PLOT_HPE_POSE
         if plot_pose:
             if results_pose.pose_landmarks:
                 self.drawing_utils.draw_landmarks(
                     cv_img, results_pose.pose_landmarks, mp.solutions.pose.POSE_CONNECTIONS
                 )
 
-        plot_loc_marker_array = True
+        plot_loc_marker_array = PLOT_LOC_MARKER
         if plot_loc_marker_array: 
             landmarks = results_pose.pose_landmarks.landmark
             mA = getMarkerArray(header.stamp, landmarks, color=(255, 0, 0))
             self.loc_ma_pub.publish(mA)
         
-        plot_glob_marker_array = True
+        plot_glob_marker_array = PLOT_GLOB_MARKER
         if plot_glob_marker_array: 
             landmarks = results_pose.pose_world_landmarks.landmark
             mA = getMarkerArray(header.stamp, landmarks, color=(0, 255, 0))
             self.glob_ma_pub.publish(mA)
-
-
 
 
     def detect_hands(self, cv_img, rgb_img, gestures=False):
