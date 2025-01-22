@@ -21,11 +21,13 @@ from mp_utils import packMPHPE3DMsg, getMarkerArray
 # - [ ] Test connecting with H2AMI 
 
 QUEUE_SIZE=1
-PLOT_LOC_MARKER=True
+PLOT_LOC_MARKER=False
 PLOT_GLOB_MARKER=True
 PLOT_HPE_POSE=True
+DETECT_HANDS=True
+DETECT_GESTURES=False
 
-class HumanPoseNode:
+class MPROSWrapper:
     def __init__(self):
         # Initialize the ROS node
         rospy.init_node('human_pose_node', anonymous=True, log_level=rospy.DEBUG)
@@ -41,19 +43,22 @@ class HumanPoseNode:
         self.gest_recognizer = mp.tasks.vision.GestureRecognizer.create_from_options(options)
 
         self.bridge = CvBridge()
+        self.img_recv = False
+        rospy.loginfo("Mediapipe node initialized.")
 
+    def _init_publishers(self): 
         self.image_pub = rospy.Publisher('human_pose_img', Image, queue_size=QUEUE_SIZE)
-        self.hpe3d_pub = rospy.Publisher('hpe3d', MpHumanPose3D, queue_size=QUEUE_SIZE)
-        self.image_sub = rospy.Subscriber('/camera/color/image_raw', Image, self.img_cb, queue_size=QUEUE_SIZE)
-        #self.crop_left_hand = rospy.Publisher('/crop_left_hand', Image, queue_size=QUEUE_SIZE)
-        #self.crop_right_hand = rospy.Publisher('/crop_right_hand', Image, queue_size=QUEUE_SIZE)
+        self.loc_hpe3d_pub = rospy.Publisher('loc/hpe3d', MpHumanPose3D, queue_size=QUEUE_SIZE)
+        self.glob_hpe3d_pub = rospy.Publisher('glob/hpe3d', MpHumanPose3D, queue_size=QUEUE_SIZE)
         self.r_gest_pub = rospy.Publisher('right_gest', MpGesture, queue_size=QUEUE_SIZE)
         self.l_gest_pub = rospy.Publisher('left_gest', MpGesture, queue_size=QUEUE_SIZE)
         self.loc_ma_pub = rospy.Publisher('loc_hpe_ma', MarkerArray, queue_size=1)
         self.glob_ma_pub = rospy.Publisher('glob_hpe_ma', MarkerArray, queue_size=1) 
+        #self.crop_right_hand = rospy.Publisher('/crop_right_hand', Image, queue_size=QUEUE_SIZE)
+        #self.crop_left_hand = rospy.Publisher('/crop_left_hand', Image, queue_size=QUEUE_SIZE)
 
-        self.img_recv = False
-        rospy.loginfo("Mediapipe node initialized.")
+    def _init_subscribers(self): 
+        self.image_sub = rospy.Subscriber('/camera/color/image_raw', Image, self.img_cb, queue_size=QUEUE_SIZE)
     
     def img_cb(self, msg):
         self.img_msg = msg
@@ -64,19 +69,24 @@ class HumanPoseNode:
         cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
         rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)               
         self.detect_pose(cv_image, rgb_image)
-        self.detect_hands(cv_image, rgb_image, gestures=True)
+        detect_hands = DETECT_HANDS
+        if detect_hands:
+            self.detect_hands(cv_image, rgb_image, gestures=DETECT_GESTURES)
         ros_image = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
         self.image_pub.publish(ros_image)
 
     def detect_pose(self, cv_img, rgb_img):
         results_pose = self.pose.process(rgb_img)
         
-        # This is local pose I think
         header = Header()
         header.stamp = rospy.Time.now()
         header.frame_id = "camera_color_link"
-        hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
-        self.hpe3d_pub.publish(hpe3d_msg)
+        # Local
+        loc_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
+        self.loc_hpe3d_pub.publish(loc_hpe3d_msg)
+        # Global   
+        glob_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_world_landmarks)
+        self.glob_hpe3d_pub.publish(glob_hpe3d_msg)
 
         plot_pose = PLOT_HPE_POSE
         if plot_pose:
@@ -96,7 +106,6 @@ class HumanPoseNode:
             landmarks = results_pose.pose_world_landmarks.landmark
             mA = getMarkerArray(header.stamp, landmarks, color=(0, 255, 0))
             self.glob_ma_pub.publish(mA)
-
 
     def detect_hands(self, cv_img, rgb_img, gestures=False):
 
@@ -184,7 +193,7 @@ class HumanPoseNode:
 
 if __name__ == '__main__':
     try:
-        node = HumanPoseNode()
+        node = MPROSWrapper()
         node.run()
     except rospy.ROSInterruptException:
         pass
