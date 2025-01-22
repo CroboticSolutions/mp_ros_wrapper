@@ -2,6 +2,12 @@
 
 Wrapper for the mediapipe ML pipelines. 
 
+# Launch mediapipe ROS wrapper with: 
+
+```
+roslaunch mp_ros_wrapper mp_ros_wrapper.launch
+```
+
 # TODO: 
 - [x] Check image delay
 - [x] Add gesture recognition
