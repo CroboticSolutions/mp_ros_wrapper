@@ -3,7 +3,7 @@
 # Define the topics to record
 topics=(
     "/mp_ros/loc/hpe3d"
-    "/mp_ros/global/hpe3d"
+    "/mp_ros/glob/hpe3d"
 )
 
 sleep 10

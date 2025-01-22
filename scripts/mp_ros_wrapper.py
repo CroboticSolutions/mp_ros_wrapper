@@ -44,6 +44,8 @@ class MPROSWrapper:
 
         self.bridge = CvBridge()
         self.img_recv = False
+        self._init_subscribers()
+        self._init_publishers()
         rospy.loginfo("Mediapipe node initialized.")
 
     def _init_publishers(self): 
@@ -56,7 +58,7 @@ class MPROSWrapper:
         self.glob_ma_pub = rospy.Publisher('glob_hpe_ma', MarkerArray, queue_size=1) 
         #self.crop_right_hand = rospy.Publisher('/crop_right_hand', Image, queue_size=QUEUE_SIZE)
         #self.crop_left_hand = rospy.Publisher('/crop_left_hand', Image, queue_size=QUEUE_SIZE)
-
+        
     def _init_subscribers(self): 
         self.image_sub = rospy.Subscriber('/camera/color/image_raw', Image, self.img_cb, queue_size=QUEUE_SIZE)
     
