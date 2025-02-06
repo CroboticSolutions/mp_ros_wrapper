@@ -3,22 +3,23 @@
 import rospy
 import copy
 import cv2
+import numpy as np
 import mediapipe as mp
 
 from sensor_msgs.msg import Image
 from hpe_ros_msgs.msg import MpGesture, MpHumanPose3D
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
-from visualization_msgs.msg import MarkerArray
+from visualization_msgs.msg import Marker, MarkerArray
 
-from mp_utils import packMPHPE3DMsg, getMarkerArray
+from mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
 
 # Google AI Edge API
 # https://ai.google.dev/edge/api/mediapipe/python/mp/Image 
 
 # TODO: 
 # - [x] Create set of markers to visualize pose estimate
-# - [ ] Test connecting with H2AMI 
+# - [ ] Test connecting with H2AMI [We need to find T, and check how the pose is calculated]
 
 QUEUE_SIZE=1
 PLOT_LOC_MARKER=False
@@ -26,6 +27,7 @@ PLOT_GLOB_MARKER=True
 PLOT_HPE_POSE=True
 DETECT_HANDS=True
 DETECT_GESTURES=False
+GET_HAND_ORIENTATION = True
 
 class MPROSWrapper:
     def __init__(self):
@@ -56,6 +58,8 @@ class MPROSWrapper:
         self.l_gest_pub = rospy.Publisher('left_gest', MpGesture, queue_size=QUEUE_SIZE)
         self.loc_ma_pub = rospy.Publisher('loc_hpe_ma', MarkerArray, queue_size=1)
         self.glob_ma_pub = rospy.Publisher('glob_hpe_ma', MarkerArray, queue_size=1) 
+        self.nr_ma_pub = rospy.Publisher('nr_ma', Marker, queue_size=1)
+        self.nl_ma_pub = rospy.Publisher('nl_ma', Marker, queue_size=1)
         #self.crop_right_hand = rospy.Publisher('/crop_right_hand', Image, queue_size=QUEUE_SIZE)
         #self.crop_left_hand = rospy.Publisher('/crop_left_hand', Image, queue_size=QUEUE_SIZE)
         
@@ -96,6 +100,21 @@ class MPROSWrapper:
                 self.drawing_utils.draw_landmarks(
                     cv_img, results_pose.pose_landmarks, mp.solutions.pose.POSE_CONNECTIONS
                 )
+
+        get_orient = GET_HAND_ORIENTATION
+        if get_orient:
+            n_r = self.gen_hand_normal(glob_hpe3d_msg.r_thumb, glob_hpe3d_msg.r_wrist,
+                                       glob_hpe3d_msg.r_index, glob_hpe3d_msg.r_pinky)
+            n_l = self.gen_hand_normal(glob_hpe3d_msg.l_thumb, glob_hpe3d_msg.l_wrist,
+                                       glob_hpe3d_msg.l_index, glob_hpe3d_msg.l_pinky)
+            # Right hand
+            rw = np.array([glob_hpe3d_msg.r_wrist.x, glob_hpe3d_msg.r_wrist.y, glob_hpe3d_msg.r_wrist.z])
+            lw = np.array([glob_hpe3d_msg.l_wrist.x, glob_hpe3d_msg.l_wrist.y, glob_hpe3d_msg.l_wrist.z])
+            mA = createMarkerArrow(header.stamp, rw, rw + n_r, 1, color=(255, 0, 0))
+            self.nr_ma_pub.publish(mA)          
+            # Left hand
+            mA = createMarkerArrow(header.stamp, lw, lw + n_l, 2, color=(0, 255, 0))
+            self.nl_ma_pub.publish(mA)            
 
         plot_loc_marker_array = PLOT_LOC_MARKER
         if plot_loc_marker_array: 
@@ -168,6 +187,19 @@ class MPROSWrapper:
         rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)   
         hand_gesture = self.detect_gesture(rgb_img)
         return hand_gesture
+    
+    def gen_hand_normal(self, thumb, wrist, index, pinky): 
+        # For left hand
+        t = np.array([thumb.x, thumb.y, thumb.z])
+        w = np.array([wrist.x, wrist.y, wrist.z])
+        i = np.array([index.x, index.y, index.z])
+        p = np.array([pinky.x, pinky.y, pinky.z])
+
+        vt = t - w; vt_ = vt / np.linalg.norm(vt)
+        vi = i - w; vi_ = vi / np.linalg.norm(vi)
+        vp = p - w; vp_ = vp / np.linalg.norm(vp)
+        n = np.cross(vt_, vi_)
+        return n
 
     def create_gesture_msg(self, hand, gesture_result):
         gesture_msg = MpGesture()
