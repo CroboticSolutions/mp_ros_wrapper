@@ -20,6 +20,9 @@ from mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
 # TODO: 
 # - [x] Create set of markers to visualize pose estimate
 # - [ ] Test connecting with H2AMI [We need to find T, and check how the pose is calculated]
+# - [ ] Test plotting, compare with the openpose
+# - [ ] Test gesture recognition
+# - [ ] Test hand (normal) orientation
 
 QUEUE_SIZE=1
 PLOT_LOC_MARKER=False
