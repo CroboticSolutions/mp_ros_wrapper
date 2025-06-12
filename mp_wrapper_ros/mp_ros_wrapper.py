@@ -14,7 +14,7 @@ from cv_bridge import CvBridge
 from hpe_ros_msgs.msg import MpGesture, MpHumanPose3D
 from visualization_msgs.msg import Marker, MarkerArray
 
-from mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
+from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
 
 QUEUE_SIZE = 1
 PLOT_LOC_MARKER = False
@@ -34,7 +34,7 @@ class MPROSWrapper(Node):
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-        base_options = mp.tasks.BaseOptions(model_asset_path='/root/ros2_ws/src/mp_wrapper_ros/models/gesture_recognizer.task')
+        base_options = mp.tasks.BaseOptions(model_asset_path='/root/piper_ws/src/mp_ros_wrapper/models/gesture_recognizer.task')
         options = mp.tasks.vision.GestureRecognizerOptions(base_options=base_options)
         self.gest_recognizer = mp.tasks.vision.GestureRecognizer.create_from_options(options)
 
