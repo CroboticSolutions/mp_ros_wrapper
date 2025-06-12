@@ -1,6 +1,0 @@
-<launch>
-
-<node ns="mp_ros" name="mp_ros_wrapper" pkg="mp_wrapper_ros" type="mp_ros_wrapper.py" output="screen">
-</node>
-
-</launch>
