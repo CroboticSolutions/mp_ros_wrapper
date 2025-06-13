@@ -9,5 +9,6 @@ def generate_launch_description():
             executable='mp_ros_wrapper',
             name='mp_ros_wrapper',
             output='screen',
+            arguments=['--ros-args', '--log-level', 'debug']
         ),
     ])

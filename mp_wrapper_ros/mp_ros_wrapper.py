@@ -4,8 +4,11 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 import cv2
-import mediapipe as mp
 import copy
+
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -20,10 +23,13 @@ QUEUE_SIZE = 1
 PLOT_LOC_MARKER = False
 PLOT_GLOB_MARKER = True
 PLOT_HPE_POSE = True
-DETECT_HANDS = True
+DETECT_HANDS = False
 DETECT_GESTURES = False
 GET_HAND_ORIENTATION = True
 
+# Mediapipe documentation/tutorials: 
+# https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/index#models
+# https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/python 
 
 class MPROSWrapper(Node):
     def __init__(self):
@@ -34,9 +40,16 @@ class MPROSWrapper(Node):
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-        base_options = mp.tasks.BaseOptions(model_asset_path='/root/piper_ws/src/mp_ros_wrapper/models/gesture_recognizer.task')
-        options = mp.tasks.vision.GestureRecognizerOptions(base_options=base_options)
-        self.gest_recognizer = mp.tasks.vision.GestureRecognizer.create_from_options(options)
+       
+        BaseOptions = mp.tasks.BaseOptions
+        PoseLandmarker = mp.tasks.vision.PoseLandmarker
+        PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
+        VisionRunningMode = mp.tasks.vision.RunningMode
+
+        model_path = '/root/piper_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
+
+        options = PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=model_path), running_mode=VisionRunningMode.IMAGE)
+        self.pose_model = PoseLandmarker.create_from_options(options)
 
         self.img_recv = False
         self.img_msg = None
@@ -45,8 +58,7 @@ class MPROSWrapper(Node):
         self._init_subscribers()
 
         self.get_logger().info("Mediapipe ROS 2 node initialized.")
-
-        self.timer = self.create_timer(0.01, self.timer_callback)
+        self.timer = self.create_timer(0.1, self.timer_callback)
 
     def _init_publishers(self):
         self.image_pub = self.create_publisher(Image, 'human_pose_img', QUEUE_SIZE)
@@ -60,11 +72,13 @@ class MPROSWrapper(Node):
         self.nl_ma_pub = self.create_publisher(Marker, 'nl_ma', 1)
 
     def _init_subscribers(self):
-        self.create_subscription(Image, '/camera/color/image_raw', self.img_cb, QUEUE_SIZE)
+        self.create_subscription(Image, '/oak/rgb/image_raw', self.img_cb, QUEUE_SIZE)
 
     def img_cb(self, msg):
         self.img_msg = msg
         self.img_recv = True
+        self.get_logger().debug("Image received at %s stamp" % msg.header.stamp)
+
 
     def timer_callback(self):
         if self.img_recv:
@@ -77,6 +91,11 @@ class MPROSWrapper(Node):
     def process_image(self, img_msg):
         cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
         rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+        self.get_logger().debug("RGB image type is %s" % type(rgb_image))
+        self.get_logger().debug("RGB image shape is %s" % str(rgb_image.shape))
+        self.get_logger().debug("RGB image encoding is %s" % img_msg.encoding)
+        self.get_logger().debug("cv_image type is %s" % type(cv_image))
+        self.get_logger().debug("cv_image shape is %s" % str(cv_image.shape))
 
         self.detect_pose(cv_image, rgb_image)
 
@@ -88,7 +107,10 @@ class MPROSWrapper(Node):
         self.image_pub.publish(ros_image)
 
     def detect_pose(self, cv_img, rgb_img):
-        results_pose = self.pose.process(rgb_img)
+        inf_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
+        results_pose = self.pose_model.detect(inf_img)
+        self.get_logger().debug("Pose landmarks detected: %s" % results_pose.pose_landmarks)
+
         now = self.get_clock().now().to_msg()
 
         header = Header()
