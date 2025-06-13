@@ -33,6 +33,14 @@ GET_HAND_ORIENTATION = False
 # https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/python 
 # https://github.com/google-ai-edge/mediapipe-samples/blob/main/examples/pose_landmarker/python/%5BMediaPipe_Python_Tasks%5D_Pose_Landmarker.ipynb
 
+# TODO: 
+# - [ ] Init pkg ROS 1 to ROS 2 migration
+# - [ ] Init HPE detection 
+# - [ ] Init hand detection
+# - [ ] Init gesture detection
+# - [ ] Packing ROS 2 messages
+# - [ ] Hand rotation estimation
+
 class MPROSWrapper(Node):
     def __init__(self):
         super().__init__('human_pose_node')
@@ -42,16 +50,20 @@ class MPROSWrapper(Node):
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-       
+        # Load human pose estimation model
         BaseOptions = mp.tasks.BaseOptions
         PoseLandmarker = mp.tasks.vision.PoseLandmarker
         PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
-
-        model_path = '/root/piper_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
-
-        options = PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=model_path), running_mode=VisionRunningMode.IMAGE)
+        pose_model_path = '/root/piper_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
+        options = PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=pose_model_path), running_mode=VisionRunningMode.IMAGE)
         self.pose_model = PoseLandmarker.create_from_options(options)
+
+        # Load hand estimation model
+        if DETECT_HANDS:
+            hand_model_path = '/root/piper_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
+            options = HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=hand_model_path), num_hands=2, running_mode=VisionRunningMode.IMAGE)
+            self.hand_model = HandLandmarker.create_from_options(options)
 
         self.img_recv = False
         self.img_msg = None
@@ -90,22 +102,32 @@ class MPROSWrapper(Node):
                 self.get_logger().error(f"Error processing image: {e}")
 
     def process_image(self, img_msg):
-        cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
-        rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
-        self.get_logger().debug("RGB image type is %s" % type(rgb_image))
-        self.get_logger().debug("RGB image shape is %s" % str(rgb_image.shape))
-        self.get_logger().debug("RGB image encoding is %s" % img_msg.encoding)
-        self.get_logger().debug("cv_image type is %s" % type(cv_image))
-        self.get_logger().debug("cv_image shape is %s" % str(cv_image.shape))
+        cv_img = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
+        rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
 
-        self.detect_pose(cv_image, rgb_image)
+        debug_proc_img = False
+        if debug_proc_img: 
+            self.get_logger().debug("RGB image type is %s" % type(rgb_image))
+            self.get_logger().debug("RGB image shape is %s" % str(rgb_image.shape))
+            self.get_logger().debug("RGB image encoding is %s" % img_msg.encoding)
+            self.get_logger().debug("cv_image type is %s" % type(cv_img))
+            self.get_logger().debug("cv_image shape is %s" % str(cv_img.shape))
 
+        anot_img = self.detect_pose(cv_img, mp_img, rgb_img)
+
+        # Detect hands and gestures if enabled
         if DETECT_HANDS:
-            self.detect_hands(cv_image, rgb_image, gestures=DETECT_GESTURES)
+            anot_img = self.detect_hands(cv_img, mp_img, rgb_img, gestures=DETECT_GESTURES)
+
+        ros_image = self.bridge.cv2_to_imgmsg(anot_img, encoding='rgb8')
+        ros_image.header.stamp = self.get_clock().now().to_msg()
+        self.get_logger().debug("Publishing image with stamp %s" % ros_image.header.stamp)
+        self.image_pub.publish(ros_image)
+             
         
-    def detect_pose(self, cv_img, rgb_img):
-        inf_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
-        results_pose = self.pose_model.detect(inf_img)
+    def detect_pose(self, cv_img, mp_img, rgb_img):
+        results_pose = self.pose_model.detect(mp_img)
         self.get_logger().debug("Pose landmarks detected: %s" % results_pose.pose_landmarks)
 
         now = self.get_clock().now().to_msg()
@@ -117,10 +139,6 @@ class MPROSWrapper(Node):
         if PLOT_HPE_POSE and len(results_pose.pose_landmarks)!=0:
 
             cv_img = draw_landmarks_on_image(rgb_img, results_pose)
-            ros_image = self.bridge.cv2_to_imgmsg(cv_img, encoding='rgb8')
-            ros_image.header.stamp = self.get_clock().now().to_msg()
-            self.get_logger().debug("Publishing image with stamp %s" % ros_image.header.stamp)
-            self.image_pub.publish(ros_image)
 
         if GET_HAND_ORIENTATION:
             n_r = self.gen_hand_normal(glob_hpe3d_msg.r_thumb, glob_hpe3d_msg.r_wrist,
@@ -141,6 +159,7 @@ class MPROSWrapper(Node):
             mA = getMarkerArray(now, results_pose.pose_world_landmarks.landmark, color=(0, 255, 0))
             self.glob_ma_pub.publish(mA)
 
+        # ROS messages packing
         # ROS messages for the further processing of the pose landmarks if required
         #loc_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
         #self.loc_hpe3d_pub.publish(loc_hpe3d_msg)
@@ -148,8 +167,10 @@ class MPROSWrapper(Node):
         #glob_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_world_landmarks)
         #self.glob_hpe3d_pub.publish(glob_hpe3d_msg)
 
+        return cv_img
+
     def detect_hands(self, cv_img, rgb_img, gestures=False):
-        results_hands = self.hand_tracking.process(rgb_img)
+        results_hands = self.hand_model.detect(mp_img)
 
         if gestures and results_hands.multi_handedness:
             w, h = self.img_msg.width, self.img_msg.height
@@ -178,6 +199,8 @@ class MPROSWrapper(Node):
         if results_hands.multi_hand_landmarks:
             for landmarks in results_hands.multi_hand_landmarks:
                 self.drawing_utils.draw_landmarks(cv_img, landmarks, mp.solutions.hands.HAND_CONNECTIONS)
+
+        return draw_hand_landmarks_on_image(rgb_img, results_hands)
 
     def detect_gesture(self, rgb_img):
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
@@ -216,6 +239,22 @@ def draw_landmarks_on_image(rgb_image, detection_result):
       mp.solutions.pose.POSE_CONNECTIONS,
       mp.solutions.drawing_styles.get_default_pose_landmarks_style())
   return annotated_image
+
+def draw_hand_landmarks_on_image(rgb_image, detection_result):
+    hand_landmarks_list = detection_result.multi_hand_landmarks
+    annotated_image = np.copy(rgb_image)
+    
+    # Loop through the detected hands to visualize.
+    for idx in range(len(hand_landmarks_list)):
+        hand_landmarks = hand_landmarks_list[idx]
+    
+        # Draw the hand landmarks.
+        mp.solutions.drawing_utils.draw_landmarks(
+        annotated_image,
+        hand_landmarks,
+        mp.solutions.hands.HAND_CONNECTIONS,
+        mp.solutions.drawing_styles.get_default_hand_landmarks_style())
+    return annotated_image
 
 
 
