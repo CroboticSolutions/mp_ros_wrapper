@@ -9,6 +9,7 @@ import copy
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from mediapipe.framework.formats import landmark_pb2
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -20,16 +21,17 @@ from visualization_msgs.msg import Marker, MarkerArray
 from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
 
 QUEUE_SIZE = 1
-PLOT_LOC_MARKER = False
-PLOT_GLOB_MARKER = True
 PLOT_HPE_POSE = True
 DETECT_HANDS = False
 DETECT_GESTURES = False
-GET_HAND_ORIENTATION = True
+PLOT_LOC_MARKER = False
+PLOT_GLOB_MARKER = False
+GET_HAND_ORIENTATION = False
 
 # Mediapipe documentation/tutorials: 
 # https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/index#models
 # https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/python 
+# https://github.com/google-ai-edge/mediapipe-samples/blob/main/examples/pose_landmarker/python/%5BMediaPipe_Python_Tasks%5D_Pose_Landmarker.ipynb
 
 class MPROSWrapper(Node):
     def __init__(self):
@@ -79,7 +81,6 @@ class MPROSWrapper(Node):
         self.img_recv = True
         self.get_logger().debug("Image received at %s stamp" % msg.header.stamp)
 
-
     def timer_callback(self):
         if self.img_recv:
             copied_img_msg = copy.deepcopy(self.img_msg)
@@ -101,11 +102,7 @@ class MPROSWrapper(Node):
 
         if DETECT_HANDS:
             self.detect_hands(cv_image, rgb_image, gestures=DETECT_GESTURES)
-
-        ros_image = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
-        ros_image.header.stamp = self.get_clock().now().to_msg()
-        self.image_pub.publish(ros_image)
-
+        
     def detect_pose(self, cv_img, rgb_img):
         inf_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
         results_pose = self.pose_model.detect(inf_img)
@@ -117,16 +114,13 @@ class MPROSWrapper(Node):
         header.stamp = now
         header.frame_id = "camera_color_link"
 
-        loc_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
-        self.loc_hpe3d_pub.publish(loc_hpe3d_msg)
+        if PLOT_HPE_POSE and len(results_pose.pose_landmarks)!=0:
 
-        glob_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_world_landmarks)
-        self.glob_hpe3d_pub.publish(glob_hpe3d_msg)
-
-        if PLOT_HPE_POSE and results_pose.pose_landmarks:
-            self.drawing_utils.draw_landmarks(
-                cv_img, results_pose.pose_landmarks, mp.solutions.pose.POSE_CONNECTIONS
-            )
+            cv_img = draw_landmarks_on_image(rgb_img, results_pose)
+            ros_image = self.bridge.cv2_to_imgmsg(cv_img, encoding='rgb8')
+            ros_image.header.stamp = self.get_clock().now().to_msg()
+            self.get_logger().debug("Publishing image with stamp %s" % ros_image.header.stamp)
+            self.image_pub.publish(ros_image)
 
         if GET_HAND_ORIENTATION:
             n_r = self.gen_hand_normal(glob_hpe3d_msg.r_thumb, glob_hpe3d_msg.r_wrist,
@@ -146,6 +140,13 @@ class MPROSWrapper(Node):
         if PLOT_GLOB_MARKER:
             mA = getMarkerArray(now, results_pose.pose_world_landmarks.landmark, color=(0, 255, 0))
             self.glob_ma_pub.publish(mA)
+
+        # ROS messages for the further processing of the pose landmarks if required
+        #loc_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
+        #self.loc_hpe3d_pub.publish(loc_hpe3d_msg)
+
+        #glob_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_world_landmarks)
+        #self.glob_hpe3d_pub.publish(glob_hpe3d_msg)
 
     def detect_hands(self, cv_img, rgb_img, gestures=False):
         results_hands = self.hand_tracking.process(rgb_img)
@@ -194,6 +195,28 @@ class MPROSWrapper(Node):
         msg.hand.data = hand
         msg.gesture.data = result.gestures[0][0].category_name
         return msg
+
+
+def draw_landmarks_on_image(rgb_image, detection_result):
+  pose_landmarks_list = detection_result.pose_landmarks
+  annotated_image = np.copy(rgb_image)
+
+  # Loop through the detected poses to visualize.
+  for idx in range(len(pose_landmarks_list)):
+    pose_landmarks = pose_landmarks_list[idx]
+
+    # Draw the pose landmarks.
+    pose_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+    pose_landmarks_proto.landmark.extend([
+      landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in pose_landmarks
+    ])
+    mp.solutions.drawing_utils.draw_landmarks(
+      annotated_image,
+      pose_landmarks_proto,
+      mp.solutions.pose.POSE_CONNECTIONS,
+      mp.solutions.drawing_styles.get_default_pose_landmarks_style())
+  return annotated_image
+
 
 
 def main(args=None):
