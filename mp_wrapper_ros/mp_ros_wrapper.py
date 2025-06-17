@@ -36,9 +36,11 @@ GET_HAND_ORIENTATION = False
 # - [x] Init pkg ROS 1 to ROS 2 migration
 # - [x] Init HPE detection 
 # - [x] Init hand detection
-# - [ ] Init gesture detection
+# - [x] Publish pose landmarks as mA 
 # - [ ] Packing ROS 2 messages
 # - [ ] Hand rotation estimation
+# - [ ] Init gesture detection
+# - [ ] Run on the GPU (if available)
 
 class MPROSWrapper(Node):
     def __init__(self):
@@ -250,7 +252,7 @@ class MPROSWrapper(Node):
         msg.gesture.data = result.gestures[0][0].category_name
         return msg
 
-# TODO: Put this to utils 
+# TODO: Put this to utils  
 def draw_landmarks_on_image(rgb_image, detection_result):
   pose_landmarks_list = detection_result.pose_landmarks
   annotated_image = np.copy(rgb_image)
@@ -318,7 +320,7 @@ def main(args=None):
     node.destroy_node()
     rclpy.shutdown()
 
-# 
+# DEPRECATED GESTURE DETECTION CODE
 #             for i, hand_info in enumerate(results_hands.handedness):
 #               label = hand_info.classification[0].label
 #                crop = lambda img, min_x, max_x, min_y, max_y: img[int(min_y):int(max_y), int(min_x):int(max_x)]

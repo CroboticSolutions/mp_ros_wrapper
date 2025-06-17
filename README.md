@@ -1,11 +1,20 @@
 # mp_ros_wrapper
 
-Wrapper for the mediapipe ML pipelines. 
+Wrapper for the mediapipe ML pipelines with ROS 2. 
 
-# Launch mediapipe ROS wrapper with: 
+# Launch luxonis camera with: 
+```
+docker start -i depthai_humble_cont 
+```
 
 ```
-roslaunch mp_ros_wrapper mp_ros_wrapper.launch
+ros2 launch depthai_ros_driver camera.launch.py
+```
+
+# Launch mediapipe ROS2 wrapper with: 
+
+```
+ros2 launch mp_wrapper_ros mp_ros_wrapper.launch.py 
 ```
 
 # TODO: 
