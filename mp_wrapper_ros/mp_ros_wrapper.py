@@ -22,7 +22,7 @@ from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarker
 
 QUEUE_SIZE = 1
 PLOT_HPE_POSE = True
-DETECT_HANDS = False
+DETECT_HANDS = True
 DETECT_GESTURES = False
 PLOT_LOC_MARKER = False
 PLOT_GLOB_MARKER = False
@@ -34,9 +34,9 @@ GET_HAND_ORIENTATION = False
 # https://github.com/google-ai-edge/mediapipe-samples/blob/main/examples/pose_landmarker/python/%5BMediaPipe_Python_Tasks%5D_Pose_Landmarker.ipynb
 
 # TODO: 
-# - [ ] Init pkg ROS 1 to ROS 2 migration
-# - [ ] Init HPE detection 
-# - [ ] Init hand detection
+# - [x] Init pkg ROS 1 to ROS 2 migration
+# - [x] Init HPE detection 
+# - [x] Init hand detection
 # - [ ] Init gesture detection
 # - [ ] Packing ROS 2 messages
 # - [ ] Hand rotation estimation
@@ -50,20 +50,13 @@ class MPROSWrapper(Node):
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-        # Load human pose estimation model
-        BaseOptions = mp.tasks.BaseOptions
-        PoseLandmarker = mp.tasks.vision.PoseLandmarker
-        PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
-        VisionRunningMode = mp.tasks.vision.RunningMode
-        pose_model_path = '/root/piper_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
-        options = PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=pose_model_path), running_mode=VisionRunningMode.IMAGE)
-        self.pose_model = PoseLandmarker.create_from_options(options)
+        hpe_path = '/root/piper_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
+        self.pose_model = self.load_hpe_model(hpe_path)
 
         # Load hand estimation model
         if DETECT_HANDS:
             hand_model_path = '/root/piper_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
-            options = HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=hand_model_path), num_hands=2, running_mode=VisionRunningMode.IMAGE)
-            self.hand_model = HandLandmarker.create_from_options(options)
+            self.hand_model = self.load_hand_model(hand_model_path)
 
         self.img_recv = False
         self.img_msg = None
@@ -87,6 +80,28 @@ class MPROSWrapper(Node):
 
     def _init_subscribers(self):
         self.create_subscription(Image, '/oak/rgb/image_raw', self.img_cb, QUEUE_SIZE)
+
+    def load_hpe_model(self, path): 
+        # Load human pose estimation model
+        BaseOptions = mp.tasks.BaseOptions
+        PoseLandmarker = mp.tasks.vision.PoseLandmarker
+        PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
+        VisionRunningMode = mp.tasks.vision.RunningMode
+        pose_model_path = path
+        options = PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=pose_model_path),
+                                        running_mode=VisionRunningMode.IMAGE)
+        return PoseLandmarker.create_from_options(options) 
+
+    def load_hand_model(self, path):
+        # Load hand landmarker model
+        BaseOptions = mp.tasks.BaseOptions
+        VisionRunningMode = mp.tasks.vision.RunningMode
+        HandLandmarker = mp.tasks.vision.HandLandmarker
+        HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
+        options = HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=path), 
+                                        num_hands=2,
+                                        running_mode=VisionRunningMode.IMAGE)
+        return HandLandmarker.create_from_options(options)
 
     def img_cb(self, msg):
         self.img_msg = msg
@@ -118,7 +133,7 @@ class MPROSWrapper(Node):
 
         # Detect hands and gestures if enabled
         if DETECT_HANDS:
-            anot_img = self.detect_hands(cv_img, mp_img, rgb_img, gestures=DETECT_GESTURES)
+            anot_img = self.detect_hands(mp_img, anot_img, gestures=DETECT_GESTURES)
 
         ros_image = self.bridge.cv2_to_imgmsg(anot_img, encoding='rgb8')
         ros_image.header.stamp = self.get_clock().now().to_msg()
@@ -128,7 +143,7 @@ class MPROSWrapper(Node):
         
     def detect_pose(self, cv_img, mp_img, rgb_img):
         results_pose = self.pose_model.detect(mp_img)
-        self.get_logger().debug("Pose landmarks detected: %s" % results_pose.pose_landmarks)
+        self.get_logger().info("Pose landmarks detected: %s" % results_pose.pose_landmarks)
 
         now = self.get_clock().now().to_msg()
 
@@ -137,7 +152,6 @@ class MPROSWrapper(Node):
         header.frame_id = "camera_color_link"
 
         if PLOT_HPE_POSE and len(results_pose.pose_landmarks)!=0:
-
             cv_img = draw_landmarks_on_image(rgb_img, results_pose)
 
         if GET_HAND_ORIENTATION:
@@ -169,38 +183,18 @@ class MPROSWrapper(Node):
 
         return cv_img
 
-    def detect_hands(self, cv_img, rgb_img, gestures=False):
+    def detect_hands(self, mp_img, rgb_img, gestures=False):
+        # Detect hands and plot them 
         results_hands = self.hand_model.detect(mp_img)
+        cv_img = draw_hand_landmarks_on_image(rgb_img, results_hands)
+        self.get_logger().info("Hand landmarks detected: %s" % results_hands)
 
-        if gestures and results_hands.multi_handedness:
+        # Detect gestures and publish them if enabled
+        if gestures:
             w, h = self.img_msg.width, self.img_msg.height
-
-            for i, hand_info in enumerate(results_hands.multi_handedness):
-                label = hand_info.classification[0].label
-                crop = lambda img, min_x, max_x, min_y, max_y: img[int(min_y):int(max_y), int(min_x):int(max_x)]
-
-                def crop_hand(img, landmarks):
-                    x_ = [a.x * w for a in landmarks.landmark]
-                    y_ = [a.y * h for a in landmarks.landmark]
-                    return crop(img, max(min(x_) - 20, 0), min(max(x_) + 20, w),
-                                     max(min(y_) - 20, 0), min(max(y_) + 20, h))
-
-                hand_img = crop_hand(cv_img, results_hands.multi_hand_landmarks[i])
-                rgb_crop = cv2.cvtColor(hand_img, cv2.COLOR_BGR2RGB)
-                gesture = self.detect_gesture(rgb_crop)
-
-                if gesture.gestures:
-                    gest_msg = self.create_gesture_msg(label.lower(), gesture)
-                    if label == "Left":
-                        self.r_gest_pub.publish(gest_msg)
-                    else:
-                        self.l_gest_pub.publish(gest_msg)
-
-        if results_hands.multi_hand_landmarks:
-            for landmarks in results_hands.multi_hand_landmarks:
-                self.drawing_utils.draw_landmarks(cv_img, landmarks, mp.solutions.hands.HAND_CONNECTIONS)
-
-        return draw_hand_landmarks_on_image(rgb_img, results_hands)
+            # TODO: Modify with gestures (Check comment at the end of this file)
+            # OLD CODE DEPRECATED DUE TO NEW MP API
+        return cv_img
 
     def detect_gesture(self, rgb_img):
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
@@ -219,7 +213,7 @@ class MPROSWrapper(Node):
         msg.gesture.data = result.gestures[0][0].category_name
         return msg
 
-
+# TODO: Put this to utils 
 def draw_landmarks_on_image(rgb_image, detection_result):
   pose_landmarks_list = detection_result.pose_landmarks
   annotated_image = np.copy(rgb_image)
@@ -241,22 +235,44 @@ def draw_landmarks_on_image(rgb_image, detection_result):
   return annotated_image
 
 def draw_hand_landmarks_on_image(rgb_image, detection_result):
-    hand_landmarks_list = detection_result.multi_hand_landmarks
+    MARGIN = 10  # pixels
+    FONT_SIZE = 1
+    FONT_THICKNESS = 1
+    HANDEDNESS_TEXT_COLOR = (88, 205, 54) # vibrant green
+    hand_landmarks_list = detection_result.hand_landmarks
+    handedness_list = detection_result.handedness
     annotated_image = np.copy(rgb_image)
-    
-    # Loop through the detected hands to visualize.
+
+  # Loop through the detected hands to visualize.
     for idx in range(len(hand_landmarks_list)):
         hand_landmarks = hand_landmarks_list[idx]
-    
+        handedness = handedness_list[idx]
+
         # Draw the hand landmarks.
+        hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+        hand_landmarks_proto.landmark.extend([
+        landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
+        ])
         mp.solutions.drawing_utils.draw_landmarks(
         annotated_image,
-        hand_landmarks,
+        hand_landmarks_proto,
         mp.solutions.hands.HAND_CONNECTIONS,
-        mp.solutions.drawing_styles.get_default_hand_landmarks_style())
+        mp.solutions.drawing_styles.get_default_hand_landmarks_style(),
+        mp.solutions.drawing_styles.get_default_hand_connections_style())
+
+        # Get the top left corner of the detected hand's bounding box.
+        height, width, _ = annotated_image.shape
+        x_coordinates = [landmark.x for landmark in hand_landmarks]
+        y_coordinates = [landmark.y for landmark in hand_landmarks]
+        text_x = int(min(x_coordinates) * width)
+        text_y = int(min(y_coordinates) * height) - MARGIN
+
+        # Draw handedness (left or right hand) on the image.
+        cv2.putText(annotated_image, f"{handedness[0].category_name}",
+                    (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
+                    FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
+
     return annotated_image
-
-
 
 def main(args=None):
     rclpy.init(args=args)
@@ -264,3 +280,25 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
+# 
+#             for i, hand_info in enumerate(results_hands.handedness):
+#               label = hand_info.classification[0].label
+#                crop = lambda img, min_x, max_x, min_y, max_y: img[int(min_y):int(max_y), int(min_x):int(max_x)]
+
+#                def crop_hand(img, landmarks):
+#                    x_ = [a.x * w for a in landmarks.landmark]
+#                    y_ = [a.y * h for a in landmarks.landmark]
+#                    return crop(img, max(min(x_) - 20, 0), min(max(x_) + 20, w),
+#                                     max(min(y_) - 20, 0), min(max(y_) + 20, h))
+#
+#                hand_img = crop_hand(rgb_img, results_hands.multi_hand_landmarks[i])
+#                rgb_crop = cv2.cvtColor(hand_img, cv2.COLOR_BGR2RGB)
+#                gesture = self.detect_gesture(rgb_crop)
+#
+#                if gesture.gestures:
+#                    gest_msg = self.create_gesture_msg(label.lower(), gesture)
+#                    if label == "Left":
+#                        self.r_gest_pub.publish(gest_msg)
+#                    else:
+#                        self.l_gest_pub.publish(gest_msg)
