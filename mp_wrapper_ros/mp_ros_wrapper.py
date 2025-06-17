@@ -22,10 +22,9 @@ from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarker
 
 QUEUE_SIZE = 1
 PLOT_HPE_POSE = True
-DETECT_HANDS = True
+DETECT_HANDS = False
 DETECT_GESTURES = False
-PLOT_LOC_MARKER = False
-PLOT_GLOB_MARKER = False
+PLOT_MARKER = True
 GET_HAND_ORIENTATION = False
 
 # Mediapipe documentation/tutorials: 
@@ -73,8 +72,7 @@ class MPROSWrapper(Node):
         self.glob_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'glob/hpe3d', QUEUE_SIZE)
         self.r_gest_pub = self.create_publisher(MpGesture, 'right_gest', QUEUE_SIZE)
         self.l_gest_pub = self.create_publisher(MpGesture, 'left_gest', QUEUE_SIZE)
-        self.loc_ma_pub = self.create_publisher(MarkerArray, 'loc_hpe_ma', 1)
-        self.glob_ma_pub = self.create_publisher(MarkerArray, 'glob_hpe_ma', 1)
+        self.ma_pub = self.create_publisher(MarkerArray, 'hpe_ma', 1)
         self.nr_ma_pub = self.create_publisher(Marker, 'nr_ma', 1)
         self.nl_ma_pub = self.create_publisher(Marker, 'nl_ma', 1)
 
@@ -143,7 +141,7 @@ class MPROSWrapper(Node):
         
     def detect_pose(self, cv_img, mp_img, rgb_img):
         results_pose = self.pose_model.detect(mp_img)
-        self.get_logger().info("Pose landmarks detected: %s" % results_pose.pose_landmarks)
+        #self.get_logger().info("Pose landmarks detected: %s" % results_pose.pose_landmarks)
 
         now = self.get_clock().now().to_msg()
 
@@ -165,16 +163,14 @@ class MPROSWrapper(Node):
             self.nr_ma_pub.publish(createMarkerArrow(now, rw, rw + n_r, 1, color=(255, 0, 0)))
             self.nl_ma_pub.publish(createMarkerArrow(now, lw, lw + n_l, 2, color=(0, 255, 0)))
 
-        if PLOT_LOC_MARKER:
-            mA = getMarkerArray(now, results_pose.pose_landmarks.landmark, color=(255, 0, 0))
-            self.loc_ma_pub.publish(mA)
-
-        if PLOT_GLOB_MARKER:
-            mA = getMarkerArray(now, results_pose.pose_world_landmarks.landmark, color=(0, 255, 0))
-            self.glob_ma_pub.publish(mA)
+        if PLOT_MARKER:
+            mA = self.getMarkerArray(now, results_pose.pose_landmarks[0], color=(255, 0, 0))
+            self.get_logger().info("Publishing marker array with %d markers" % len(mA.markers))
+            self.ma_pub.publish(mA)
 
         # ROS messages packing
         # ROS messages for the further processing of the pose landmarks if required
+        # Maybe use only ROS messages for the further processing? 
         #loc_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
         #self.loc_hpe3d_pub.publish(loc_hpe3d_msg)
 
@@ -183,11 +179,52 @@ class MPROSWrapper(Node):
 
         return cv_img
 
+    # Draw markers for the landmarks in the MarkerArray format
+    def getMarkerArray(self, stamp, landmarks, color):
+        hpe3d = [(landmark.x, landmark.y, landmark.z) for landmark in landmarks]
+        mA = self.createMarkerArray(stamp, hpe3d, color)
+        return mA
+
+    def createMarkerArray(self, stamp, keypoints, color=(255, 0, 0)):
+        mA = MarkerArray()
+        i = 0
+        for landmark in keypoints:
+            x,y,z = landmark[0], landmark[1], landmark[2]
+            m_ = self.createMarker(stamp, x, y, z, i, color)
+            i+=1 
+            mA.markers.append(m_)
+        return mA
+
+    def createMarker(self, stamp, x_, y_, z_, i, color=(255, 0, 0)):
+        self.get_logger().info("Creating marker with id %d at position (%f, %f, %f)" % (i, x_, y_, z_))
+        m_ = Marker()
+        m_.header.frame_id = "oak_rgb_camera_frame"
+        m_.header.stamp = stamp
+        m_.type = m_.SPHERE
+        m_.id = i
+        m_.action = m_.ADD
+        m_.scale.x = 0.1
+        m_.scale.y = 0.1
+        m_.scale.z = 0.1
+        m_.color.r = color[0] / 255.0
+        m_.color.g = color[1] / 255.0
+        m_.color.b = color[2] / 255.0
+        m_.color.a = 1.0
+        m_.pose.position.x = 1.0 * float(x_)
+        m_.pose.position.y = 1.0 * float(y_)
+        m_.pose.position.z = 1.0 * float(z_)
+        m_.pose.orientation.x = 0.0
+        m_.pose.orientation.y = 0.0
+        m_.pose.orientation.z = 0.0
+        m_.pose.orientation.w = 1.0
+        #self.get_logger().info("Marker is: %s" % str(m_))
+        return m_
+
     def detect_hands(self, mp_img, rgb_img, gestures=False):
         # Detect hands and plot them 
         results_hands = self.hand_model.detect(mp_img)
         cv_img = draw_hand_landmarks_on_image(rgb_img, results_hands)
-        self.get_logger().info("Hand landmarks detected: %s" % results_hands)
+        # self.get_logger().info("Hand landmarks detected: %s" % results_hands)
 
         # Detect gestures and publish them if enabled
         if gestures:

@@ -44,13 +44,14 @@ def packMPHPE3DMsg(header, landmarks):
 
 def getMarkerArray(stamp, landmarks, color):
     hpe3d = [(landmark.x, landmark.y, landmark.z) for landmark in landmarks]
-    mA = createMarkerArray(stamp, hpe3d, color)
+    #mA = createMarkerArray(stamp, hpe3d, color)
     return mA
 
 def createMarkerArray(stamp, keypoints, color=(255, 0, 0)):
     mA = MarkerArray()
     i = 0
-    for x, y, z in keypoints:
+    for landmark in keypoints:
+        x,y,z = landmark[0], landmark[1], landmark[2]
         m_ = createMarker(stamp, x, y, z, i, color)
         i+=1 
         mA.markers.append(m_)
@@ -58,7 +59,7 @@ def createMarkerArray(stamp, keypoints, color=(255, 0, 0)):
 
 def createMarker(stamp, x, y, z, i, color=(255, 0, 0)):
     m_ = Marker()
-    m_.header.frame_id = "camera_color_frame"
+    m_.header.frame_id = "oak-d-base-frame"
     m_.header.stamp = stamp
     m_.type = m_.SPHERE
     m_.id = i
@@ -70,9 +71,9 @@ def createMarker(stamp, x, y, z, i, color=(255, 0, 0)):
     m_.color.r = color[0] / 255.0
     m_.color.g = color[1] / 255.0
     m_.color.b = color[2] / 255.0
-    m_.pose.position.x = x
-    m_.pose.position.y = y
-    m_.pose.position.z = z
+    m_.pose.position.x = float(x)
+    m_.pose.position.y = float(y)
+    m_.pose.position.z = float(z)
     m_.pose.orientation.x = 0
     m_.pose.orientation.y = 0
     m_.pose.orientation.z = 0
