@@ -81,17 +81,22 @@ class MPROSWrapper(Node):
     def _init_subscribers(self):
         self.create_subscription(Image, '/oak/rgb/image_raw', self.img_cb, QUEUE_SIZE)
 
-    def load_hpe_model(self, path): 
+    def load_hpe_model(self, path, GPU=False): 
         # Load human pose estimation model
         BaseOptions = mp.tasks.BaseOptions
         PoseLandmarker = mp.tasks.vision.PoseLandmarker
         PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
         pose_model_path = path
-        options = PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=pose_model_path),
+        if GPU: 
+            base_ = BaseOptions(model_asset_path=pose_model_path, delegate=mp.tasks.BaseOptions.Delegate.GPU)
+        else: 
+            base_ = BaseOptions(model_asset_path=pose_model_path)
+        options = PoseLandmarkerOptions(base_options=base_,
                                         running_mode=VisionRunningMode.IMAGE)
         return PoseLandmarker.create_from_options(options) 
 
+    # TODO: Add same GPU support for the hand model 
     def load_hand_model(self, path):
         # Load hand landmarker model
         BaseOptions = mp.tasks.BaseOptions
@@ -198,7 +203,7 @@ class MPROSWrapper(Node):
         return mA
 
     def createMarker(self, stamp, x_, y_, z_, i, color=(255, 0, 0)):
-        self.get_logger().info("Creating marker with id %d at position (%f, %f, %f)" % (i, x_, y_, z_))
+        self.get_logger().debug("Creating marker with id %d at position (%f, %f, %f)" % (i, x_, y_, z_))
         m_ = Marker()
         m_.header.frame_id = "oak_rgb_camera_frame"
         m_.header.stamp = stamp
