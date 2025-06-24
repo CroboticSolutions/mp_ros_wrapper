@@ -41,11 +41,17 @@ class MPROSWrapper(Node):
 
         self.img_recv = False
         self.img_msg = None
+        self.img_topic_name = '/dummy/image_raw'
 
         self._init_publishers()
         self._init_subscribers()
 
-        self.get_logger().info("Mediapipe ROS 2 node initialized.")
+        test_img = True
+        if test_img:
+            self.image = cv2.imread('/root/ros2_ws/src/mp_ros_wrapper/michael_jordan.jpg')  # Replace with your image path
+            self.publisher = self.create_publisher(Image, self.img_topic_name, 10)
+
+        self.get_logger().info("Metrabs ROS 2 node initialized.")
         freq = 25 
         self.timer = self.create_timer(1/freq, self.timer_callback)
 
@@ -54,7 +60,7 @@ class MPROSWrapper(Node):
         self.loc_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'loc/hpe3d', QUEUE_SIZE)
 
     def _init_subscribers(self):
-        self.create_subscription(Image, '/oak/rgb/image_raw', self.img_cb, QUEUE_SIZE)
+        self.create_subscription(Image, self.img_topic_name, self.img_cb, QUEUE_SIZE)
 
     def load_hpe_model(self, model_link='https://bit.ly/metrabs_s_256'):
         # If loaded from the web link  
@@ -66,7 +72,14 @@ class MPROSWrapper(Node):
         self.img_recv = True
         self.get_logger().debug("Image received at %s stamp" % msg.header.stamp)
 
+    def publish_image(self):
+        msg = self.bridge.cv2_to_imgmsg(self.image, encoding='bgr8')
+        self.publisher.publish(msg)
+        self.get_logger().info('Published dummy image.')
+
     def timer_callback(self):
+        self.get_logger().info("Timer callback triggered.")
+        self.publish_image()
         if self.img_recv:
             copied_img_msg = copy.deepcopy(self.img_msg)
             try:
@@ -75,9 +88,8 @@ class MPROSWrapper(Node):
                 self.get_logger().error(f"Error processing image: {e}")
 
     def process_image(self, img_msg):
-        cv_img = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
-        rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
+        tf_img = self.ros_img_to_tf_tensor(img_msg, desired_encoding='rgb8')
+        prediction = self.pose_model.detect_poses(tf_img, skeleton='smpl24')
 
         debug_proc_img = False
         if debug_proc_img: 
@@ -87,22 +99,17 @@ class MPROSWrapper(Node):
             self.get_logger().debug("cv_image type is %s" % type(cv_img))
             self.get_logger().debug("cv_image shape is %s" % str(cv_img.shape))
 
-        start_time = self.get_clock().now()
-        anot_img = self.detect_pose(cv_img, mp_img, rgb_img)
-        duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
-        self.get_logger().info("Pose detection took %.2f ms" % duration)
+        self.get_logger().info("Prediction type is %s" % prediction)
+        
+    def ros_img_to_tf_tensor(self, ros_img_msg: Image, desired_encoding='rgb8') -> tf.Tensor:
+        # Convert ROS Image to OpenCV (NumPy) image
+        cv_image = self.bridge.imgmsg_to_cv2(ros_img_msg, desired_encoding=desired_encoding)  # shape: (H, W, 3)
+    
+        # Convert NumPy array to TensorFlow tensor
+        tf_image = tf.convert_to_tensor(cv_image, dtype=tf.uint8)  # shape: (H, W, 3)
+    
+        return tf_image
 
-        # Detect hands and gestures if enabled
-        if DETECT_HANDS:
-            start_time = self.get_clock().now()
-            anot_img = self.detect_hands(mp_img, anot_img, gestures=DETECT_GESTURES)
-            duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
-            self.get_logger().info("Hand detection took %.2f ms" % duration)
-
-        ros_image = self.bridge.cv2_to_imgmsg(anot_img, encoding='rgb8')
-        ros_image.header.stamp = self.get_clock().now().to_msg()
-        self.get_logger().debug("Publishing image with stamp %s" % ros_image.header.stamp)
-        self.image_pub.publish(ros_image)
 
 
 def main(args=None):
@@ -111,6 +118,7 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 # DEPRECATED GESTURE DETECTION CODE
 #             for i, hand_info in enumerate(results_hands.handedness):
