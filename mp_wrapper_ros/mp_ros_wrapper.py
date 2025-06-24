@@ -22,7 +22,7 @@ from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarker
 
 QUEUE_SIZE = 1
 PLOT_HPE_POSE = True
-DETECT_HANDS = False
+DETECT_HANDS = True
 DETECT_GESTURES = False
 PLOT_MARKER = True
 GET_HAND_ORIENTATION = False
@@ -40,7 +40,8 @@ GET_HAND_ORIENTATION = False
 # - [ ] Packing ROS 2 messages
 # - [ ] Hand rotation estimation
 # - [ ] Init gesture detection
-# - [ ] Run on the GPU (if available)
+# - [x] Run on the GPU (if available)
+# - [ ] Check duration of the processing
 
 class MPROSWrapper(Node):
     def __init__(self):
@@ -51,13 +52,13 @@ class MPROSWrapper(Node):
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-        hpe_path = '/root/piper_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
-        self.pose_model = self.load_hpe_model(hpe_path)
+        hpe_path = '/root/ros2_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
+        self.pose_model = self.load_hpe_model(hpe_path, GPU=True)
 
         # Load hand estimation model
         if DETECT_HANDS:
-            hand_model_path = '/root/piper_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
-            self.hand_model = self.load_hand_model(hand_model_path)
+            hand_model_path = '/root/ros2_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
+            self.hand_model = self.load_hand_model(hand_model_path, GPU=True)
 
         self.img_recv = False
         self.img_msg = None
@@ -66,7 +67,8 @@ class MPROSWrapper(Node):
         self._init_subscribers()
 
         self.get_logger().info("Mediapipe ROS 2 node initialized.")
-        self.timer = self.create_timer(0.1, self.timer_callback)
+        freq = 25 
+        self.timer = self.create_timer(1/freq, self.timer_callback)
 
     def _init_publishers(self):
         self.image_pub = self.create_publisher(Image, 'human_pose_img', QUEUE_SIZE)
@@ -87,23 +89,26 @@ class MPROSWrapper(Node):
         PoseLandmarker = mp.tasks.vision.PoseLandmarker
         PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
-        pose_model_path = path
         if GPU: 
-            base_ = BaseOptions(model_asset_path=pose_model_path, delegate=mp.tasks.BaseOptions.Delegate.GPU)
+            base_ = BaseOptions(model_asset_path=path, delegate=mp.tasks.BaseOptions.Delegate.GPU)
         else: 
-            base_ = BaseOptions(model_asset_path=pose_model_path)
+            base_ = BaseOptions(model_asset_path=path)
         options = PoseLandmarkerOptions(base_options=base_,
                                         running_mode=VisionRunningMode.IMAGE)
         return PoseLandmarker.create_from_options(options) 
 
     # TODO: Add same GPU support for the hand model 
-    def load_hand_model(self, path):
+    def load_hand_model(self, path, GPU=False):
         # Load hand landmarker model
         BaseOptions = mp.tasks.BaseOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
         HandLandmarker = mp.tasks.vision.HandLandmarker
         HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
-        options = HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=path), 
+        if GPU: 
+            base_ = BaseOptions(model_asset_path=path, delegate=mp.tasks.BaseOptions.Delegate.GPU)
+        else: 
+            base_ = BaseOptions(model_asset_path=path)
+        options = HandLandmarkerOptions(base_options=base_, 
                                         num_hands=2,
                                         running_mode=VisionRunningMode.IMAGE)
         return HandLandmarker.create_from_options(options)
@@ -134,11 +139,17 @@ class MPROSWrapper(Node):
             self.get_logger().debug("cv_image type is %s" % type(cv_img))
             self.get_logger().debug("cv_image shape is %s" % str(cv_img.shape))
 
+        start_time = self.get_clock().now()
         anot_img = self.detect_pose(cv_img, mp_img, rgb_img)
+        duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
+        self.get_logger().info("Pose detection took %.2f ms" % duration)
 
         # Detect hands and gestures if enabled
         if DETECT_HANDS:
+            start_time = self.get_clock().now()
             anot_img = self.detect_hands(mp_img, anot_img, gestures=DETECT_GESTURES)
+            duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
+            self.get_logger().info("Hand detection took %.2f ms" % duration)
 
         ros_image = self.bridge.cv2_to_imgmsg(anot_img, encoding='rgb8')
         ros_image.header.stamp = self.get_clock().now().to_msg()
