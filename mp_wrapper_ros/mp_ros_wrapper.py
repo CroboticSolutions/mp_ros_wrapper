@@ -20,7 +20,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
 
-QUEUE_SIZE = 1
+QUEUE_SIZE = 20
 PLOT_HPE_POSE = True
 DETECT_HANDS = True
 DETECT_GESTURES = False
@@ -72,7 +72,7 @@ class MPROSWrapper(Node):
 
     def _init_publishers(self):
         self.image_pub = self.create_publisher(Image, 'human_pose_img', QUEUE_SIZE)
-        self.loc_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'loc/hpe3d', QUEUE_SIZE)
+        self.hpe3d_pub = self.create_publisher(MpHumanPose3D, 'hpe3d', QUEUE_SIZE)
         self.glob_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'glob/hpe3d', QUEUE_SIZE)
         self.r_gest_pub = self.create_publisher(MpGesture, 'right_gest', QUEUE_SIZE)
         self.l_gest_pub = self.create_publisher(MpGesture, 'left_gest', QUEUE_SIZE)
@@ -167,7 +167,7 @@ class MPROSWrapper(Node):
         header.stamp = now
         header.frame_id = "camera_color_link"
 
-        if PLOT_HPE_POSE and len(results_pose.pose_landmarks)!=0:
+        if PLOT_HPE_POSE and len(results_pose.pose_landmarks) != 0:
             cv_img = draw_landmarks_on_image(rgb_img, results_pose)
 
         if GET_HAND_ORIENTATION:
@@ -189,8 +189,8 @@ class MPROSWrapper(Node):
         # ROS messages packing
         # ROS messages for the further processing of the pose landmarks if required
         # Maybe use only ROS messages for the further processing? 
-        #loc_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks)
-        #self.loc_hpe3d_pub.publish(loc_hpe3d_msg)
+        hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks[0])
+        self.hpe3d_pub.publish(hpe3d_msg)
 
         #glob_hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_world_landmarks)
         #self.glob_hpe3d_pub.publish(glob_hpe3d_msg)
@@ -221,9 +221,9 @@ class MPROSWrapper(Node):
         m_.type = m_.SPHERE
         m_.id = i
         m_.action = m_.ADD
-        m_.scale.x = 0.1
-        m_.scale.y = 0.1
-        m_.scale.z = 0.1
+        m_.scale.x = 0.01
+        m_.scale.y = 0.01
+        m_.scale.z = 0.01
         m_.color.r = color[0] / 255.0
         m_.color.g = color[1] / 255.0
         m_.color.b = color[2] / 255.0

@@ -16,7 +16,12 @@ from cv_bridge import CvBridge
 from hpe_ros_msgs.msg import MpGesture, MpHumanPose3D
 from visualization_msgs.msg import Marker, MarkerArray
 
-from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
+from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow, draw_bounding_box
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+
 
 QUEUE_SIZE = 1
 PLOT_HPE_POSE = True
@@ -28,9 +33,12 @@ GET_HAND_ORIENTATION = False
 # - [ ] Add metrabs documentation link
 
 # TODO: 
-# - [ ] Add init loading for the metrabs model
-# - [ ] Create launch file for this node
-# - [ ] Add building of this node to the CMakeLists.txt
+# - [x] Add init loading for the metrabs model
+# - [x] Create launch file for this node
+# - [x] Add building of this node to the CMakeLists.txt
+# - [ ] Add a subscriber to the image topic
+# - [ ] Add a publisher for the human pose 2D message
+# - [ ] Add a publisher for the human pose 3D message 
 
 class MPROSWrapper(Node):
     def __init__(self):
@@ -87,9 +95,29 @@ class MPROSWrapper(Node):
             except Exception as e:
                 self.get_logger().error(f"Error processing image: {e}")
 
+    def plot_detections(self, img, detections): 
+        for i in range(0, len(detections[:, :4]), 1):
+            x, y, w, h = detections[i, :4]
+            print("Detection %d: x=%d, y=%d, w=%d, h=%d" % (i, x, y, w, h))
+            cv2.rectangle(img, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
+        return img
+
+    def plot_2d_pose(self, img, pose_2d):
+        if PLOT_HPE_POSE:
+            for i in range(len(pose_2d)):
+                x, y = pose_2d[i]
+                if x > 0 and y > 0:
+                    cv2.circle(img, (int(x), int(y)), 5, (0, 0, 255), -1)
+                    cv2.putText(img, str(i), (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        return img
+
+
     def process_image(self, img_msg):
         tf_img = self.ros_img_to_tf_tensor(img_msg, desired_encoding='rgb8')
         prediction = self.pose_model.detect_poses(tf_img, skeleton='smpl24')
+
+        self.get_logger().info("Prediction 2d reciv: %s" % prediction['poses2d'].numpy())
+        self.get_logger().info("Prediction 3d reciv: %s" % prediction['poses3d'].numpy()) 
 
         debug_proc_img = False
         if debug_proc_img: 
@@ -98,6 +126,14 @@ class MPROSWrapper(Node):
             self.get_logger().debug("RGB image encoding is %s" % img_msg.encoding)
             self.get_logger().debug("cv_image type is %s" % type(cv_img))
             self.get_logger().debug("cv_image shape is %s" % str(cv_img.shape))
+
+        debug_plot = True
+        if debug_plot: 
+            cv2_img = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
+            cv2_img = self.plot_detections(cv2_img, prediction['boxes'].numpy())
+            cv2_img = self.plot_2d_pose(cv2_img, prediction['poses2d'].numpy())
+            self.image = cv2_img
+
 
         self.get_logger().info("Prediction type is %s" % prediction)
         
