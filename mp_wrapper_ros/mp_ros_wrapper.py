@@ -26,6 +26,8 @@ DETECT_HANDS = True
 DETECT_GESTURES = False
 PLOT_MARKER = True
 GET_HAND_ORIENTATION = False
+OAK_CAMERA_TOPIC = "/oak/rgb/image_raw"
+USB_CAMERA_TOPIC = "/camera1/image_raw"
 
 # Mediapipe documentation/tutorials: 
 # https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/index#models
@@ -52,13 +54,13 @@ class MPROSWrapper(Node):
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-        hpe_path = '/root/ros2_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
-        self.pose_model = self.load_hpe_model(hpe_path, GPU=True)
+        hpe_path = '/root/uav_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
+        self.pose_model = self.load_hpe_model(hpe_path, GPU=False)
 
         # Load hand estimation model
         if DETECT_HANDS:
-            hand_model_path = '/root/ros2_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
-            self.hand_model = self.load_hand_model(hand_model_path, GPU=True)
+            hand_model_path = '/root/uav_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
+            self.hand_model = self.load_hand_model(hand_model_path, GPU=False)
 
         self.img_recv = False
         self.img_msg = None
@@ -81,7 +83,7 @@ class MPROSWrapper(Node):
         self.nl_ma_pub = self.create_publisher(Marker, 'nl_ma', 1)
 
     def _init_subscribers(self):
-        self.create_subscription(Image, '/oak/rgb/image_raw', self.img_cb, QUEUE_SIZE)
+        self.create_subscription(Image, USB_CAMERA_TOPIC, self.img_cb, QUEUE_SIZE)
 
     def load_hpe_model(self, path, GPU=False): 
         # Load human pose estimation model
