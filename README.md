@@ -33,6 +33,7 @@ ros2 launch mp_ros_wrapper metrabs_ros_wrapper.launch.py
 - [x] Add launch
 - [x] Add 3D points info 
 - [x] Record bag and compare with the openpose
+- [x] Added VitPose
 - [ ] Connect with the H2AMI 
 - [ ] Check 3D point estimation 
 - [ ] Compare with openpose

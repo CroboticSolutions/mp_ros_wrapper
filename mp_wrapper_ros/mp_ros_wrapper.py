@@ -22,9 +22,9 @@ from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarker
 
 QUEUE_SIZE = 20
 PLOT_HPE_POSE = True
-DETECT_HANDS = True
+DETECT_HANDS = False
 DETECT_GESTURES = False
-PLOT_MARKER = True
+PLOT_MARKER = False
 GET_HAND_ORIENTATION = False
 OAK_CAMERA_TOPIC = "/oak/rgb/image_raw"
 USB_CAMERA_TOPIC = "/camera1/image_raw"
@@ -39,7 +39,7 @@ USB_CAMERA_TOPIC = "/camera1/image_raw"
 # - [x] Init HPE detection 
 # - [x] Init hand detection
 # - [x] Publish pose landmarks as mA 
-# - [ ] Packing ROS 2 messages
+# - [x] Packing ROS 2 messages
 # - [ ] Hand rotation estimation
 # - [ ] Init gesture detection
 # - [x] Run on the GPU (if available)
@@ -167,6 +167,7 @@ class MPROSWrapper(Node):
 
         header = Header()
         header.stamp = now
+        # FRAME_ID based on the camera 
         header.frame_id = "camera_color_link"
 
         if PLOT_HPE_POSE and len(results_pose.pose_landmarks) != 0:
@@ -191,6 +192,7 @@ class MPROSWrapper(Node):
         # ROS messages packing
         # ROS messages for the further processing of the pose landmarks if required
         # Maybe use only ROS messages for the further processing? 
+        # TODO: World landmarks vs. landmarks in the camera frame 
         hpe3d_msg = packMPHPE3DMsg(header, results_pose.pose_landmarks[0])
         self.hpe3d_pub.publish(hpe3d_msg)
 
@@ -216,7 +218,7 @@ class MPROSWrapper(Node):
         return mA
 
     def createMarker(self, stamp, x_, y_, z_, i, color=(255, 0, 0)):
-        self.get_logger().debug("Creating marker with id %d at position (%f, %f, %f)" % (i, x_, y_, z_))
+        #self.get_logger().debug("Creating marker with id %d at position (%f, %f, %f)" % (i, x_, y_, z_))
         m_ = Marker()
         m_.header.frame_id = "oak_rgb_camera_frame"
         m_.header.stamp = stamp

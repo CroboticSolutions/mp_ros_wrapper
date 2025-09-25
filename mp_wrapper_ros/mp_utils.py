@@ -5,6 +5,7 @@ import cv2
 
 def packMPHPE3DMsg(header, landmarks):
     """ Pack a mediapipe human pose estimation message into a ROS message """
+    #TODO: Check if this has been done correctly
     msg = MpHumanPose3D()
     msg.header = header
     msg.nose.x = landmarks[0].x; msg.nose.y = landmarks[0].y; msg.nose.z = landmarks[0].z
@@ -40,7 +41,7 @@ def packMPHPE3DMsg(header, landmarks):
     msg.r_heel.x = landmarks[30].x; msg.r_heel.y = landmarks[30].y; msg.r_heel.z = landmarks[30].z
     msg.l_foot_index.x = landmarks[31].x; msg.l_foot_index.y = landmarks[31].y; msg.l_foot_index.z = landmarks[31].z
     msg.r_foot_index.x = landmarks[32].x; msg.r_foot_index.y = landmarks[32].y; msg.r_foot_index.z = landmarks[32].z
-    print(msg)
+    #print(msg)
     return msg
 
 
