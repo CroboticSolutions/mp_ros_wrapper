@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import rclpy
 from rclpy.node import Node
 import numpy as np
@@ -13,21 +14,37 @@ from mediapipe.framework.formats import landmark_pb2
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
-from cv_bridge import CvBridge
 
 from hpe_ros_msgs.msg import MpGesture, MpHumanPose3D
 from visualization_msgs.msg import Marker, MarkerArray
 
-from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow
+from mp_wrapper_ros.mp_utils import packMPHPE3DMsg, getMarkerArray, createMarkerArrow, ros_image_to_numpy, numpy_to_ros_image
+from mp_wrapper_ros.mp_config import MPConfig
 
-QUEUE_SIZE = 20
-PLOT_HPE_POSE = True
-DETECT_HANDS = False
-DETECT_GESTURES = False
-PLOT_MARKER = False
-GET_HAND_ORIENTATION = False
-OAK_CAMERA_TOPIC = "/oak/rgb/image_raw"
-USB_CAMERA_TOPIC = "/camera1/image_raw"
+# Load configuration once and cache values for performance
+_config = MPConfig()
+
+# Pre-load all configuration values to avoid repeated lookups during processing
+QUEUE_SIZE = _config.get_queue_size('default')
+PLOT_HPE_POSE = _config.is_feature_enabled('plot_hpe_pose')
+DETECT_HANDS = _config.is_feature_enabled('detect_hands')
+DETECT_GESTURES = _config.is_feature_enabled('detect_gestures')
+PLOT_MARKER = _config.is_feature_enabled('plot_marker')
+GET_HAND_ORIENTATION = _config.is_feature_enabled('get_hand_orientation')
+OAK_CAMERA_TOPIC = _config.get_camera_topic('oak')
+USB_CAMERA_TOPIC = _config.get_camera_topic('usb')
+
+# Cache other frequently used config values
+PROCESSING_FREQUENCY = _config.get('processing.frequency', 25.0)
+GPU_ENABLED = _config.get('processing.gpu_enabled', False)
+LOG_PROCESSING_TIME = _config.get('debug.log_processing_time', True)
+ENABLE_IMAGE_DEBUG = _config.get('debug.enable_image_debug', False)
+
+# Cache queue sizes
+IMAGE_QUEUE_SIZE = _config.get_queue_size('image')
+POSE_QUEUE_SIZE = _config.get_queue_size('pose')
+MARKER_QUEUE_SIZE = _config.get_queue_size('marker')
+GESTURE_QUEUE_SIZE = _config.get_queue_size('gesture')
 
 # Mediapipe documentation/tutorials: 
 # https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/index#models
@@ -48,19 +65,21 @@ USB_CAMERA_TOPIC = "/camera1/image_raw"
 class MPROSWrapper(Node):
     def __init__(self):
         super().__init__('human_pose_node')
-        self.bridge = CvBridge()
-
+        
         self.pose = mp.solutions.pose.Pose()
         self.hand_tracking = mp.solutions.hands.Hands()
         self.drawing_utils = mp.solutions.drawing_utils
 
-        hpe_path = '/root/uav_ws/src/mp_ros_wrapper/models/pose_landmarker_full.task'
-        self.pose_model = self.load_hpe_model(hpe_path, GPU=False)
+        # Load pose model using cached config values for better performance
+        hpe_path = _config.get_model_path('pose_model')
+        self.get_logger().info(f"Loading pose model from: {hpe_path}")
+        self.pose_model = self.load_hpe_model(hpe_path, GPU=GPU_ENABLED)
 
         # Load hand estimation model
         if DETECT_HANDS:
-            hand_model_path = '/root/uav_ws/src/mp_ros_wrapper/models/hand_landmarker.task'
-            self.hand_model = self.load_hand_model(hand_model_path, GPU=False)
+            hand_model_path = _config.get_model_path('hand_model')
+            self.get_logger().info(f"Loading hand model from: {hand_model_path}")
+            self.hand_model = self.load_hand_model(hand_model_path, GPU=GPU_ENABLED)
 
         self.img_recv = False
         self.img_msg = None
@@ -68,22 +87,24 @@ class MPROSWrapper(Node):
         self._init_publishers()
         self._init_subscribers()
 
-        self.get_logger().info("Mediapipe ROS 2 node initialized.")
-        freq = 25 
-        self.timer = self.create_timer(1/freq, self.timer_callback)
+        self.get_logger().info("Mediapipe ROS 2 node initialized with config-driven parameters.")
+        self.get_logger().info(f"Queue size: {QUEUE_SIZE}, GPU enabled: {GPU_ENABLED}")
+        self.get_logger().info(f"Processing frequency: {PROCESSING_FREQUENCY} Hz")
+        self.timer = self.create_timer(1/PROCESSING_FREQUENCY, self.timer_callback)
 
     def _init_publishers(self):
-        self.image_pub = self.create_publisher(Image, 'human_pose_img', QUEUE_SIZE)
-        self.hpe3d_pub = self.create_publisher(MpHumanPose3D, 'hpe3d', QUEUE_SIZE)
-        self.glob_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'glob/hpe3d', QUEUE_SIZE)
-        self.r_gest_pub = self.create_publisher(MpGesture, 'right_gest', QUEUE_SIZE)
-        self.l_gest_pub = self.create_publisher(MpGesture, 'left_gest', QUEUE_SIZE)
-        self.ma_pub = self.create_publisher(MarkerArray, 'hpe_ma', 1)
-        self.nr_ma_pub = self.create_publisher(Marker, 'nr_ma', 1)
-        self.nl_ma_pub = self.create_publisher(Marker, 'nl_ma', 1)
+        # Use pre-cached queue sizes for better performance
+        self.image_pub = self.create_publisher(Image, 'human_pose_img', IMAGE_QUEUE_SIZE)
+        self.hpe3d_pub = self.create_publisher(MpHumanPose3D, 'hpe3d', POSE_QUEUE_SIZE)
+        self.glob_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'glob/hpe3d', POSE_QUEUE_SIZE)
+        self.r_gest_pub = self.create_publisher(MpGesture, 'right_gest', GESTURE_QUEUE_SIZE)
+        self.l_gest_pub = self.create_publisher(MpGesture, 'left_gest', GESTURE_QUEUE_SIZE)
+        self.ma_pub = self.create_publisher(MarkerArray, 'hpe_ma', MARKER_QUEUE_SIZE)
+        self.nr_ma_pub = self.create_publisher(Marker, 'nr_ma', MARKER_QUEUE_SIZE)
+        self.nl_ma_pub = self.create_publisher(Marker, 'nl_ma', MARKER_QUEUE_SIZE)
 
     def _init_subscribers(self):
-        self.create_subscription(Image, USB_CAMERA_TOPIC, self.img_cb, QUEUE_SIZE)
+        self.create_subscription(Image, USB_CAMERA_TOPIC, self.img_cb, IMAGE_QUEUE_SIZE)
 
     def load_hpe_model(self, path, GPU=False): 
         # Load human pose estimation model
@@ -129,12 +150,12 @@ class MPROSWrapper(Node):
                 self.get_logger().error(f"Error processing image: {e}")
 
     def process_image(self, img_msg):
-        cv_img = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
-        rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+        # Convert ROS image to numpy array (no cv_bridge needed!)
+        rgb_img = ros_image_to_numpy(img_msg)
+        cv_img = rgb_img  # Keep cv_img for compatibility with existing code
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_img)
 
-        debug_proc_img = False
-        if debug_proc_img: 
+        if ENABLE_IMAGE_DEBUG: 
             self.get_logger().debug("RGB image type is %s" % type(rgb_image))
             self.get_logger().debug("RGB image shape is %s" % str(rgb_image.shape))
             self.get_logger().debug("RGB image encoding is %s" % img_msg.encoding)
@@ -144,20 +165,30 @@ class MPROSWrapper(Node):
         start_time = self.get_clock().now()
         anot_img = self.detect_pose(cv_img, mp_img, rgb_img)
         duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
-        self.get_logger().info("Pose detection took %.2f ms" % duration)
+        
+        # Log processing time if enabled
+        if LOG_PROCESSING_TIME:
+            self.get_logger().info("Pose detection took %.2f ms" % duration)
 
         # Detect hands and gestures if enabled
         if DETECT_HANDS:
             start_time = self.get_clock().now()
             anot_img = self.detect_hands(mp_img, anot_img, gestures=DETECT_GESTURES)
             duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
-            self.get_logger().info("Hand detection took %.2f ms" % duration)
+            
+            # Log processing time if enabled
+            if LOG_PROCESSING_TIME:
+                self.get_logger().info("Hand detection took %.2f ms" % duration)
 
-        ros_image = self.bridge.cv2_to_imgmsg(anot_img, encoding='rgb8')
-        ros_image.header.stamp = self.get_clock().now().to_msg()
+        # Convert numpy array to ROS image (no cv_bridge needed!)
+        ros_image = numpy_to_ros_image(
+            anot_img, 
+            encoding='rgb8', 
+            frame_id=img_msg.header.frame_id, 
+            stamp=self.get_clock().now().to_msg()
+        )
         self.get_logger().debug("Publishing image with stamp %s" % ros_image.header.stamp)
-        self.image_pub.publish(ros_image)
-             
+        self.image_pub.publish(ros_image)             
         
     def detect_pose(self, cv_img, mp_img, rgb_img):
         results_pose = self.pose_model.detect(mp_img)

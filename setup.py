@@ -12,6 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), ['launch/mp_ros_wrapper.launch.py', 'launch/metrabs_ros_wrapper.launch.py', 'launch/vitpose_ros_wrapper.launch.py']),
+        (os.path.join('share', package_name, 'config'), ['config/mp_config.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

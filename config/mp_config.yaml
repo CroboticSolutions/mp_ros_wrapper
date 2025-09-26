@@ -1,0 +1,40 @@
+# MediaPipe ROS Wrapper Configuration
+# This file contains configuration parameters for the mp_ros_wrapper package
+
+# Queue sizes for publishers and subscribers
+# Lower values (1-5) reduce latency but may drop messages under high load
+# Higher values (10-50) buffer more messages but increase latency
+queue_size:
+  default: 1          # Default queue size for most topics
+  image: 2            # Queue size for image topics (subscribers and publishers)
+  pose: 1             # Queue size for pose estimation topics
+  marker: 1           # Queue size for visualization markers
+  gesture: 1          # Queue size for gesture topics
+
+# Processing configuration
+processing:
+  frequency: 25.0     # Processing frequency in Hz
+  gpu_enabled: false  # Enable GPU acceleration for MediaPipe models
+
+# Feature toggles
+features:
+  plot_hpe_pose: true         # Enable pose visualization on images
+  detect_hands: false         # Enable hand detection and tracking
+  detect_gestures: false      # Enable gesture recognition
+  plot_marker: false          # Enable RViz marker visualization
+  get_hand_orientation: false # Enable hand orientation calculation
+
+# Camera topics
+camera:
+  oak_topic: "/oak/rgb/image_raw"
+  usb_topic: "/camera1/image_raw"
+  
+# Model paths (relative to package root)
+models:
+  pose_model: "models/pose_landmarker_full.task"
+  hand_model: "models/hand_landmarker.task"
+
+# Debug settings
+debug:
+  enable_image_debug: false   # Enable detailed image processing debug logs
+  log_processing_time: true   # Log processing duration for performance monitoring
