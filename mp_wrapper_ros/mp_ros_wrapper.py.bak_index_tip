@@ -15,8 +15,6 @@ from mediapipe.framework.formats import landmark_pb2
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
 
-from geometry_msgs.msg import PointStamped
-
 from hpe_ros_msgs.msg import MpGesture, MpHumanPose3D
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -100,8 +98,6 @@ class MPROSWrapper(Node):
         self.hpe3d_pub = self.create_publisher(MpHumanPose3D, 'hpe3d', POSE_QUEUE_SIZE)
         self.glob_hpe3d_pub = self.create_publisher(MpHumanPose3D, 'glob/hpe3d', POSE_QUEUE_SIZE)
         self.r_gest_pub = self.create_publisher(MpGesture, 'right_gest', GESTURE_QUEUE_SIZE)
-        self.right_index_tip_px_pub = self.create_publisher(PointStamped, 'right_index_tip_px', 10)
-        self.left_index_tip_px_pub = self.create_publisher(PointStamped, 'left_index_tip_px', 10)
         self.l_gest_pub = self.create_publisher(MpGesture, 'left_gest', GESTURE_QUEUE_SIZE)
         self.ma_pub = self.create_publisher(MarkerArray, 'hpe_ma', MARKER_QUEUE_SIZE)
         self.nr_ma_pub = self.create_publisher(Marker, 'nr_ma', MARKER_QUEUE_SIZE)
@@ -178,7 +174,7 @@ class MPROSWrapper(Node):
         # Detect hands and gestures if enabled
         if DETECT_HANDS:
             start_time = self.get_clock().now()
-            anot_img = self.detect_hands(mp_img, anot_img, img_w=rgb_img.shape[1], img_h=rgb_img.shape[0], gestures=DETECT_GESTURES)
+            anot_img = self.detect_hands(mp_img, anot_img, gestures=DETECT_GESTURES)
             duration = (self.get_clock().now() - start_time).nanoseconds / 1e6  # Convert to milliseconds
             
             # Log processing time if enabled
@@ -278,37 +274,9 @@ class MPROSWrapper(Node):
         #self.get_logger().info("Marker is: %s" % str(m_))
         return m_
 
-    def detect_hands(self, mp_img, rgb_img, img_w=None, img_h=None, gestures=False):
+    def detect_hands(self, mp_img, rgb_img, gestures=False):
         # Detect hands and plot them 
         results_hands = self.hand_model.detect(mp_img)
-
-        # Publish index fingertip pixel coordinates (normalized landmarks * image dimensions)
-        if img_w is not None and img_h is not None and getattr(results_hands, 'hand_landmarks', None):
-            try:
-                for i, hand in enumerate(results_hands.hand_landmarks):
-                    # Determine handedness if available
-                    hand_name = None
-                    if getattr(results_hands, 'handedness', None) and i < len(results_hands.handedness) and results_hands.handedness[i]:
-                        hand_name = (results_hands.handedness[i][0].category_name or '').strip().lower()
-
-                    tip = hand[8]  # INDEX_FINGER_TIP
-                    msg = PointStamped()
-                    msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.header.frame_id = 'image'
-                    msg.point.x = float(tip.x) * float(img_w)
-                    msg.point.y = float(tip.y) * float(img_h)
-                    msg.point.z = 0.0
-
-                    if hand_name == 'right':
-                        self.right_index_tip_px_pub.publish(msg)
-                    elif hand_name == 'left':
-                        self.left_index_tip_px_pub.publish(msg)
-                    else:
-                        # If handedness is missing/unknown, publish on both for debugging
-                        self.right_index_tip_px_pub.publish(msg)
-            except Exception as e:
-                self.get_logger().warn(f"Failed to publish index_tip_px: {e}")
-
         cv_img = draw_hand_landmarks_on_image(rgb_img, results_hands)
         # self.get_logger().info("Hand landmarks detected: %s" % results_hands)
 

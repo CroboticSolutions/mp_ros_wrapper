@@ -15,8 +15,6 @@ from mediapipe.framework.formats import landmark_pb2
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
 
-from geometry_msgs.msg import PointStamped
-
 from hpe_ros_msgs.msg import MpGesture, MpHumanPose3D
 from visualization_msgs.msg import Marker, MarkerArray
 

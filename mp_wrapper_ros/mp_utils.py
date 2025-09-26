@@ -1,7 +1,38 @@
 from hpe_ros_msgs.msg import MpHumanPose3D
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
+from sensor_msgs.msg import Image
 import cv2
+import numpy as np
+
+def ros_image_to_numpy(ros_image):
+    """Convert ROS Image message to numpy array (no cv_bridge needed!)"""
+    if ros_image.encoding == 'rgb8':
+        img_array = np.frombuffer(ros_image.data, dtype=np.uint8)
+        img_array = img_array.reshape((ros_image.height, ros_image.width, 3))
+        return img_array
+    elif ros_image.encoding == 'bgr8':
+        img_array = np.frombuffer(ros_image.data, dtype=np.uint8)
+        img_array = img_array.reshape((ros_image.height, ros_image.width, 3))
+        return img_array[:, :, ::-1]  # BGR to RGB
+    else:
+        raise ValueError(f"Unsupported encoding: {ros_image.encoding}")
+
+def numpy_to_ros_image(numpy_array, encoding='rgb8', frame_id='', stamp=None):
+    """Convert numpy array to ROS Image message (no cv_bridge needed!)"""
+    ros_image = Image()
+    ros_image.height, ros_image.width = numpy_array.shape[:2]
+    ros_image.encoding = encoding
+    ros_image.is_bigendian = False
+    ros_image.step = ros_image.width * 3  # 3 bytes per pixel for RGB
+    ros_image.data = numpy_array.tobytes()
+    
+    # Set header
+    ros_image.header.frame_id = frame_id
+    if stamp is not None:
+        ros_image.header.stamp = stamp
+    
+    return ros_image
 
 def packMPHPE3DMsg(header, landmarks):
     """ Pack a mediapipe human pose estimation message into a ROS message """

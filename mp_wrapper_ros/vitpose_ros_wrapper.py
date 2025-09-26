@@ -23,7 +23,7 @@ from mp_wrapper_ros.vit_utils import (
     create_vitpose_marker_array
 )
 
-QUEUE_SIZE = 20
+QUEUE_SIZE = 1  # Reduced queue size for real-time processing
 PLOT_HPE_POSE = True
 PLOT_MARKER = True
 OAK_CAMERA_TOPIC = "/oak/rgb/image_raw"
@@ -69,7 +69,7 @@ class VitPoseROSWrapper(Node):
         self.ma_pub = self.create_publisher(MarkerArray, 'vitpose/hpe_ma', 1)
 
     def _init_subscribers(self):
-        self.create_subscription(RosImage, USB_CAMERA_TOPIC, self.img_cb, QUEUE_SIZE)
+        self.create_subscription(RosImage, USB_CAMERA_TOPIC, self.img_cb, 1)
 
     def img_cb(self, msg):
         self.img_msg = msg
